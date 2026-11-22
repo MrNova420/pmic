@@ -66,9 +66,47 @@ APP_DIR = Path(__file__).resolve().parent if not getattr(sys, "frozen", False) \
 # PyInstaller bundles data files under _MEIPASS (onedir: <exe>_internal)
 BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR)) if getattr(sys, "frozen", False) else APP_DIR
 WEB_DIR = BUNDLE_DIR / "web"
-CONFIG_PATH = APP_DIR / "pmic-config.json"
 
-VERSION = "1.4.1"
+
+def _is_writable(directory: Path) -> bool:
+    """True if this process can create files in `directory`."""
+    try:
+        probe = directory / ".pmic-write-probe"
+        probe.write_text("")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def _resolve_state_dir(app_dir: Path | None = None) -> Path:
+    """Directory for mutable state: config, journal, TLS certificate + key.
+
+    Portable and from-source runs keep state next to the app, which is what
+    existing users already have. An installed build lives under
+    %ProgramFiles%, which is read-only for standard users, so those fall back
+    to %LOCALAPPDATA%\\PMic rather than failing every write.
+    """
+    app_dir = APP_DIR if app_dir is None else app_dir
+    if _is_writable(app_dir):
+        return app_dir
+    for env in ("LOCALAPPDATA", "APPDATA"):
+        base = os.environ.get(env)
+        if not base:
+            continue
+        candidate = Path(base) / "PMic"
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            return candidate
+        except OSError:
+            continue
+    return Path(tempfile.gettempdir()) / "PMic"
+
+
+STATE_DIR = _resolve_state_dir()
+CONFIG_PATH = STATE_DIR / "pmic-config.json"
+
+VERSION = "1.4.1-beta.1"
 SAMPLE_RATE = 48_000
 CHANNELS = 1
 SAMPLE_WIDTH = 2          # int16
@@ -688,8 +726,8 @@ class PMicServer:
         self.ip = lan_ip()
         self.started = time.time()
         # phones need TLS for microphone permission on mobile browsers
-        self.cert_path = APP_DIR / "pmic-cert.pem"
-        self.key_path = APP_DIR / "pmic-key.pem"
+        self.cert_path = STATE_DIR / "pmic-cert.pem"
+        self.key_path = STATE_DIR / "pmic-key.pem"
         self.https_available = ensure_tls_cert(self.cert_path, self.key_path, self.ip)
         # cross-thread stop control (overlay/tray -> asyncio server)
         self._loop = None
@@ -1245,10 +1283,17 @@ def start_tray(server, stop: asyncio.Event) -> None:
     except ImportError:
         return
 
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    d.ellipse([4, 4, 60, 60], fill=(14, 17, 22, 255), outline=(63, 182, 232, 255), width=4)
-    d.ellipse([24, 24, 40, 40], fill=(63, 182, 232, 255))
+    img = None
+    try:
+        with Image.open(BUNDLE_DIR / "assets" / "pmic.ico") as ico:
+            img = ico.convert("RGBA")
+    except Exception:
+        img = None
+    if img is None:  # asset missing (old build): draw the mark instead
+        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        d.ellipse([4, 4, 60, 60], fill=(14, 17, 22, 255), outline=(76, 194, 255, 255), width=4)
+        d.ellipse([24, 24, 40, 40], fill=(76, 194, 255, 255))
 
     def open_dashboard(_icon, _item):
         open_dashboard_window(server)

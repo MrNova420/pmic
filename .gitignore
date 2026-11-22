@@ -5,6 +5,18 @@ dist/
 
 # release artifacts
 *.zip
+*.msi
+*.wixpdb
+SHA256SUMS.txt
+
+# generated installer sources (regenerated from dist/ by tools/make_installer.py)
+installer/Files.wxs
+installer/PMic.wxs
+installer/LICENSE.rtf
+
+# build scratch
+build/version.txt
+.pmic-write-probe
 
 # python
 __pycache__/

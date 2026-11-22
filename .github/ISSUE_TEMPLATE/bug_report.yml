@@ -1,0 +1,89 @@
+name: Bug report
+description: Something didn't work — audio, pairing, the installer, or the app itself
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. The fields below are what actually make a bug
+        reproducible — especially the audio path, since most PMic problems are
+        driver or network related rather than code related.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what actually happened.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install PMic?
+      options:
+        - MSI installer
+        - Portable zip
+        - Running from source (python server.py)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: PMic version
+      description: Shown in the dashboard footer, or the filename you downloaded.
+      placeholder: 1.4.1-beta.1
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 23H2 (22631.4169)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: virtual-device
+    attributes:
+      label: Virtual audio device
+      options:
+        - CABLE Output (bundled VB-CABLE)
+        - VoiceMeeter
+        - Other / none installed
+    validations:
+      required: true
+
+  - type: textarea
+    id: dashboard-state
+    attributes:
+      label: Dashboard state
+      description: |
+        What the dashboard showed while the problem happened — Phone, Buffer,
+        Stream, Dropouts and Clock drift. A screenshot is ideal.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output
+      description: |
+        If running from source, paste the output of
+        `python server.py --port=8787`. Redact your IP if you care.
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Quick checks
+      options:
+        - label: The phone and PC are on the same Wi-Fi network
+        - label: The phone opened the HTTPS address (port 8788), not the HTTP dashboard
+        - label: Client/AP isolation is disabled on the router
+        - label: I searched existing issues for this problem
