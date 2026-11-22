@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0E1116">
+<title>PMic</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230E1116'/><circle cx='16' cy='16' r='7' fill='%233FB6E8'/></svg>">
+</head>
+<body class="client">
+
+<main>
+  <!-- pairing -->
+  <section id="pairScreen" class="screen screen-center">
+    <h1 class="logo">PMic</h1>
+    <p class="lede">Turns this phone into your PC’s microphone.</p>
+    <form id="pairForm">
+      <label class="field-label" for="pinInput">Pairing code</label>
+      <div class="pin-row">
+        <input id="pinInput" inputmode="numeric" autocomplete="one-time-code"
+               maxlength="6" pattern="[0-9]*" placeholder="••••••" required>
+      </div>
+      <p class="hint">Shown on the PMic dashboard on your PC.</p>
+      <p id="pairError" class="error" hidden></p>
+      <button type="submit" class="btn btn-primary" id="pairBtn">Connect</button>
+    </form>
+  </section>
+
+  <!-- on air -->
+  <section id="liveScreen" class="screen screen-center" hidden>
+    <div class="meter-wrap">
+      <div class="meter-ring" id="meterRing">
+        <div class="meter-core">
+          <div class="state-label" id="stateLabel">On air</div>
+          <div class="client-name" id="clientName"></div>
+        </div>
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="ring-track" cx="60" cy="60" r="54"/>
+          <circle class="ring-level" id="ringLevel" cx="60" cy="60" r="54"/>
+        </svg>
+      </div>
+    </div>
+    <div class="live-stats" id="liveStats">
+      <div class="stat"><span class="stat-num" id="statLat">—</span><span class="stat-label">ms to PC</span></div>
+      <div class="stat"><span class="stat-num" id="statRate">—</span><span class="stat-label">kb/s</span></div>
+    </div>
+    <div class="pc-hear"><span id="pcDot"></span><span id="pcHearText">checking the PC…</span></div>
+    <p class="hint" style="text-align:center">Keep this screen on and the phone plugged in for long sessions.</p>
+    <div class="live-actions">
+      <button class="btn btn-ghost" id="muteBtn">Mute</button>
+      <button class="btn btn-danger" id="stopBtn">Stop</button>
+    </div>
+    <details class="settings">
+      <summary>Microphone &amp; quality</summary>
+      <div class="setting">
+        <label for="micSel">Microphone</label>
+        <select id="micSel"></select>
+      </div>
+      <div class="setting toggle-row">
+        <label for="nsToggle">Noise suppression</label>
+        <input type="checkbox" id="nsToggle" checked>
+      </div>
+      <div class="setting toggle-row">
+        <label for="monitorToggle">Hear myself <small>headphones only</small></label>
+        <input type="checkbox" id="monitorToggle">
+      </div>
+      <div class="setting">
+        <label for="gainRange">Microphone gain</label>
+        <input type="range" id="gainRange" min="0" max="200" value="100">
+      </div>
+    </details>
+  </section>
+</main>
+
+<script src="/static/client.js"></script>
+</body>
+</html>

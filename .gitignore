@@ -1,0 +1,29 @@
+# build output
+build/
+dist/
+*.spec.bak
+
+# release artifacts
+*.zip
+
+# python
+__pycache__/
+*.pyc
+
+# runtime state (never commit: contains pairing/config state + private key)
+pmic-config.json
+pmic-sysstate.json
+pmic-cert.pem
+pmic-key.pem
+
+# recovery / incident artifacts
+recovery/
+*.broken-backup
+PolicyConfig-*.reg
+MMDevices-backup.reg
+*.log
+
+# local scratch
+repair.ps1
+cleanup.ps1
+recover_server.ps1
