@@ -19,7 +19,7 @@
 
 ---
 
-> **This is a beta (v1.4.1-beta.1).** The audio path, pairing, driver install and
+> **This is a beta (v1.4.1-beta.2).** The audio path, pairing, driver install and
 > packaging are real and tested, but it's software with one author — and it
 > installs an *audio driver*, which is the part most likely to surprise you. Read
 > [Known limitations](#known-limitations) before installing. Bug reports are
@@ -87,7 +87,7 @@ Settings, your pairing code and the TLS certificate live per-user in
 Silent install, if that's your thing:
 
 ```bat
-msiexec /i PMic-Setup-1.4.1-beta.1-x64.msi /qn
+msiexec /i PMic-Setup-1.4.1-beta.2-x64.msi /qn
 ```
 
 ### Portable
@@ -159,6 +159,8 @@ Requires Python 3.10+ on Windows. `Build PMic.bat` produces the portable build;
 | SmartScreen warns about the EXE/MSI | The builds are **unsigned** (no code-signing certificate). Verify the SHA-256 against `SHA256SUMS.txt`, then *More info → Run anyway*. |
 | Antivirus flags the driver installer | The VB-CABLE installer is unsigned third-party software, shipped unmodified from vb-audio.com. |
 | Dashboard device list is empty | No virtual audio device is installed yet — that's the *Install virtual mic* step. |
+| "PMic is already running" | A second copy was blocked on purpose — two instances fight over the port and the default mic. Use the tray icon or overlay of the first one. |
+| Mic left as the wrong device after a crash or force-kill | Run `PMic.exe --restore` to put the previous default microphone back without starting the app. |
 
 Settings live in `pmic-config.json` in `%LOCALAPPDATA%\PMic` (installed) or next to
 `PMic.exe` (portable). Delete it to reset — a new PIN and certificate are generated
@@ -228,7 +230,7 @@ Being straight with you about a beta:
 Every release publishes `SHA256SUMS.txt`:
 
 ```powershell
-Get-FileHash .\PMic-Setup-1.4.1-beta.1-x64.msi -Algorithm SHA256
+Get-FileHash .\PMic-Setup-1.4.1-beta.2-x64.msi -Algorithm SHA256
 ```
 
 ## Credits

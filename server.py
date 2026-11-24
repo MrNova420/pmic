@@ -106,7 +106,126 @@ def _resolve_state_dir(app_dir: Path | None = None) -> Path:
 STATE_DIR = _resolve_state_dir()
 CONFIG_PATH = STATE_DIR / "pmic-config.json"
 
-VERSION = "1.4.1-beta.1"
+VERSION = "1.4.1-beta.2"
+
+
+# --------------------------------------------------------------------------
+# process guards
+# --------------------------------------------------------------------------
+
+_MUTEX_HANDLE = None
+_CONSOLE_HANDLER = None
+
+
+def _alert(text: str, title: str = "PMic") -> None:
+    """Tell the user something before exiting. A windowed build has no console,
+    so a silent exit is indistinguishable from a crash."""
+    print(f"[pmic] {text}", file=sys.stderr)
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(None, text, title, 0x40 | 0x1000)
+    except Exception:
+        pass
+
+
+def _port_owner(port: int) -> str:
+    """Best-effort "who is holding this port", for error messages only."""
+    if os.name != "nt":
+        return ""
+    no_window = 0x08000000      # CREATE_NO_WINDOW: no console flash in a GUI app
+    try:
+        out = subprocess.run(["netstat", "-ano", "-p", "tcp"], capture_output=True,
+                             text=True, timeout=5, creationflags=no_window).stdout
+    except Exception:
+        return ""
+    pid = ""
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[1].endswith(f":{port}") and parts[3] == "LISTENING":
+            pid = parts[4]
+            break
+    if not pid:
+        return ""
+    try:
+        info = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                              capture_output=True, text=True, timeout=5,
+                              creationflags=no_window).stdout.strip()
+        name = info.split('","')[0].strip('"') if info.startswith('"') else ""
+        return f"{name} (PID {pid})" if name else f"PID {pid}"
+    except Exception:
+        return f"PID {pid}"
+
+
+def _acquire_single_instance() -> bool:
+    """False when another PMic already owns this machine.
+
+    Two copies fight over the port and the default recording device, and the
+    resulting behaviour looks like random breakage, so refuse to start twice.
+    Returns True if the check itself is unavailable — never block the user over
+    a failed guard.
+    """
+    global _MUTEX_HANDLE
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        kernel32.CreateMutexW.argtypes = (wintypes.LPCVOID, wintypes.BOOL,
+                                          wintypes.LPCWSTR)
+        handle = kernel32.CreateMutexW(None, True, "Local\\PMicSingleInstance")
+        if not handle:
+            return True
+        if ctypes.get_last_error() == 183:      # ERROR_ALREADY_EXISTS
+            kernel32.CloseHandle(handle)
+            return False
+        _MUTEX_HANDLE = handle                  # held until the process exits
+        return True
+    except Exception:
+        return True
+
+
+def _restore_system() -> None:
+    """Undo journaled system changes. Idempotent: the journal entry is consumed."""
+    if sysstate is None:
+        return
+    try:
+        result = sysstate.revert_all(str(CONFIG_PATH))
+        if result.get("default_mic") == "reverted":
+            print("[pmic] restored pre-PMic default mic", file=sys.stderr)
+    except Exception as e:
+        print(f"[pmic] cleanup failed: {e}", file=sys.stderr)
+
+
+def _install_console_cleanup(on_event) -> None:
+    """Run cleanup when the console is closed, the user logs off, or Windows
+    shuts down. Without this, closing the window leaves the machine dirty."""
+    global _CONSOLE_HANDLER
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        prototype = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+
+        def _callback(event: int) -> bool:
+            # 2 = CTRL_CLOSE_EVENT, 5 = LOGOFF, 6 = SHUTDOWN
+            if event in (2, 5, 6):
+                with contextlib.suppress(Exception):
+                    on_event()
+            return False
+
+        _CONSOLE_HANDLER = prototype(_callback)   # kept alive on purpose
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(_CONSOLE_HANDLER, True)
+    except Exception:
+        pass
+
 SAMPLE_RATE = 48_000
 CHANNELS = 1
 SAMPLE_WIDTH = 2          # int16
@@ -1147,6 +1266,23 @@ def main() -> None:
                 port = int(arg.split("=", 1)[1])
         elif arg == "--no-tray":
             no_tray = True
+        elif arg == "--restore":
+            # repair a machine left dirty by a crash or a force-kill, without
+            # starting the server or the UI
+            if sysstate is not None:
+                result = sysstate.revert_all(str(CONFIG_PATH))
+                print("restore:", result)
+                done = result.get("default_mic")
+                if getattr(sys, "frozen", False):
+                    # a windowed build has no console; report it where it shows
+                    _alert("PMic restore: " + {
+                        "reverted": "your default microphone was put back",
+                        "no_change": "nothing needed restoring",
+                        "no_entry": "nothing needed restoring",
+                        "revert_failed": "the previous device is gone; "
+                                         "pick your mic in Windows sound settings",
+                    }.get(done, str(done)), "PMic")
+            return
         elif arg == "--set-default-mic":
             # elevated helper: set default recording device to <endpoint id>, exit
             idx = sys.argv.index("--set-default-mic")
@@ -1154,6 +1290,13 @@ def main() -> None:
                 ok = dmic.set_default_capture(sys.argv[idx + 1])
                 print("set-default-mic:", "ok" if ok else "failed")
             return
+
+    # refuse a second copy: two instances fight over the port and over the
+    # default recording device, which presents as random instability
+    if not _acquire_single_instance():
+        _alert("PMic is already running.\n\nUse the tray icon or the overlay to "
+               "reach the copy that is already open.")
+        return
 
     # startup janitor: if a previous run died without cleaning up (crash,
     # taskkill, power loss), undo its leftover system changes FIRST — before
@@ -1177,23 +1320,51 @@ def main() -> None:
         getattr(sys, "frozen", False) or "--overlay" in sys.argv)
 
     def run_server() -> None:
-        asyncio.run(serve(app, port, server, stop, use_tray))
-
-    threading.Thread(target=run_server, daemon=True).start()
-
-    if use_overlay:
         try:
-            import overlay
-            ui_stop = threading.Event()
-            started = threading.Event()
-            overlay.run_overlay(server, ui_stop, started)   # blocks the main thread
-            return
+            asyncio.run(serve(app, port, server, stop, use_tray))
         except Exception as e:
-            print(f"[pmic] overlay unavailable ({e}); running headless", file=sys.stderr)
-    # headless: block the main thread until the server is asked to stop
-    import time as _t
-    while not stop.is_set():
-        _t.sleep(0.2)
+            print(f"[pmic] server stopped: {e}", file=sys.stderr)
+            with contextlib.suppress(Exception):
+                stop.set()
+
+    # NOT a daemon thread: interpreter shutdown would kill it in the middle of
+    # cleanup, silently skipping the default-mic restore. main() joins it.
+    server_thread = threading.Thread(target=run_server, name="pmic-server")
+    server_thread.start()
+
+    def shutdown() -> None:
+        """Single exit path for tray quit, overlay quit, Ctrl+C and console close."""
+        server.request_stop()
+        with contextlib.suppress(Exception):
+            stop.set()
+        server_thread.join(timeout=10.0)
+        if server_thread.is_alive():
+            print("[pmic] server thread did not stop in 10s; cleaning up anyway",
+                  file=sys.stderr)
+        _restore_system()
+
+    _install_console_cleanup(shutdown)
+
+    try:
+        if use_overlay:
+            try:
+                import overlay
+                ui_stop = threading.Event()
+                started = threading.Event()
+                overlay.run_overlay(server, ui_stop, started)   # blocks the main thread
+            except Exception as e:
+                print(f"[pmic] overlay unavailable ({e}); running headless",
+                      file=sys.stderr)
+                use_overlay = False
+        if not use_overlay:
+            # headless: block the main thread until the server is asked to stop
+            import time as _t
+            while not stop.is_set():
+                _t.sleep(0.2)
+    except KeyboardInterrupt:
+        print("[pmic] interrupted", file=sys.stderr)
+    finally:
+        shutdown()
 
 
 async def serve(app, port, server, stop, use_tray) -> None:
@@ -1202,13 +1373,32 @@ async def serve(app, port, server, stop, use_tray) -> None:
     runner = web.AppRunner(app)
     await runner.setup()
     site_http = web.TCPSite(runner, "0.0.0.0", port)
-    await site_http.start()
+    try:
+        await site_http.start()
+    except OSError as e:
+        # most often the port is already taken; say so plainly instead of
+        # dying with a traceback nobody sees in a windowed build
+        owner = _port_owner(port)
+        _alert(f"PMic can't start: port {port} is already in use"
+               + (f" by {owner}." if owner else ".")
+               + "\n\nClose the other program (or the other copy of PMic) and "
+                 "try again.")
+        print(f"[pmic] bind {port} failed: {e}", file=sys.stderr)
+        with contextlib.suppress(Exception):
+            await runner.cleanup()
+            stop.set()
+        return
     if server.https_available:
         import ssl as _ssl
         ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(server.cert_path, server.key_path)
         site_tls = web.TCPSite(runner, "0.0.0.0", server.https_port, ssl_context=ctx)
-        await site_tls.start()
+        try:
+            await site_tls.start()
+        except OSError as e:
+            # HTTP still works for the dashboard; only phone pairing is affected
+            print(f"[pmic] phone port {server.https_port} unavailable: {e}",
+                  file=sys.stderr)
 
     if use_tray:
         threading.Thread(target=start_tray, args=(server, stop), daemon=True).start()
